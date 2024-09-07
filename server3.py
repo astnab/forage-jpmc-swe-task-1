@@ -39,50 +39,65 @@ import dateutil.parser
 
 # Sim params
 
-REALTIME = True
-SIM_LENGTH = timedelta(days=365 * 5)
-MARKET_OPEN = datetime.today().replace(hour=0, minute=30, second=0)
+REALTIME = True # simulates real-time data; otherwise, simulates historical data
+SIM_LENGTH = timedelta(days=365 * 5) ## duration of simulation
+MARKET_OPEN = datetime.today().replace(hour=0, minute=30, second=0) ## market start time
 
 # Market parms
 #       min  / max  / std
-SPD = (2.0, 6.0, 0.1)
-PX = (60.0, 150.0, 1)
-FREQ = (12, 36, 50)
+SPD = (2.0, 6.0, 0.1) ## parameter for market data simulation. spread
+PX = (60.0, 150.0, 1) ## price
+FREQ = (12, 36, 50) ## frequency
 
 # Trades
 
-OVERLAP = 4
+OVERLAP = 4 ## generating order data
 
 
 ################################################################################
 #
 # Test Data
 
-def bwalk(min, max, std):
+## def / define = define a function
+## yield = pauses the function and allows it to continue, producing a sequence of values one at a time
+
+def bwalk(min, max, std): 
     """ Generates a bounded random walk. """
     rng = max - min
     while True:
         max += normalvariate(0, std)
+        # updates max value by adding normal variate and std
         yield abs((max % (rng * 2)) - rng) + min
+        # nilai mutlak dari selisih antara sisa pembagian max dengan rng, membatasi nilai max dalam rentang dari min hingga max 
 
 
 def market(t0=MARKET_OPEN):
     """ Generates a random series of market conditions,
         (time, price, spread).
     """
+    # hours = variable jumlah jam perubahan waktu pasar
     for hours, px, spd in zip(bwalk(*FREQ), bwalk(*PX), bwalk(*SPD)):
+       # zip menggabungkan bbrp iterable mjd satu iterable berisi tuples
         yield t0, px, spd
         t0 += timedelta(hours=abs(hours))
+        # timedelta -> duration/time interval
 
 
 def orders(hist):
     """ Generates a random set of limit orders (time, side, price, size) from
         a series of market conditions.
     """
+    # iterating every element in hist, hist = a list/iterable of tuples. tuples = t, px, spd
     for t, px, spd in hist:
         stock = 'ABC' if random() > 0.5 else 'DEF'
+        # if random() 0.5 then stock = ABC
+        # side is like type of the order -> buy or sell
+        # if random() > 0.5 maka side = sell and d = 2
         side, d = ('sell', 2) if random() > 0.5 else ('buy', -2)
         order = round(normalvariate(px + (spd / d), spd / OVERLAP), 2)
+        # round -> rounding to 2 decimals
+        # px (existing price) + spd/d (spread/d atau arah transaksi, meningkat/menurun)
+        # normalvariate utk simulate harga order dan ukuran order dalam distribusi yang mirip dengan apa yang terjadi di dunia nyata
         size = int(abs(normalvariate(0, 100)))
         yield t, stock, side, order, size
 
@@ -95,6 +110,7 @@ def add_book(book, order, size, _age=10):
     """ Add a new order and size to a book, and age the rest of the book. """
     yield order, size, _age
     for o, s, age in book:
+        ## iterate setiap order (terdiri atas o, s, age) di dalam book
         if age > 0:
             yield o, s, age - 1
 
@@ -104,13 +120,18 @@ def clear_order(order, size, book, op=operator.ge, _notional=0):
         (notional, new_book) if successful, and None if not.  _notional is a
         recursive accumulator and should not be provided by the caller.
     """
+    # tuple unpacking -> take elements from book and divide into variables (top_order, top_size, age), lalu tail berisi book[1:] indeks pertama dan seterusnya
     (top_order, top_size, age), tail = book[0], book[1:]
     if op(order, top_order):
+        # if order >= top_order = true
         _notional += min(size, top_size) * top_order
+        # notional -> parameter accumulator (temp)
         sdiff = top_size - size
+        # size difference
         if sdiff > 0:
             return _notional, list(add_book(tail, top_order, sdiff, age))
         elif len(tail) > 0:
+            # len = length
             return clear_order(order, -sdiff, tail, op, _notional)
 
 
@@ -118,14 +139,20 @@ def clear_book(buy=None, sell=None):
     """ Clears all crossed orders from a buy and sell book, returning the new
         books uncrossed.
     """
+    # loop yg berjalan jika buy/sell ada isinya
     while buy and sell:
         order, size, _ = buy[0]
+        # ambil indeks pertama dari buy berisi o, s, _ itu age yg diabaikan
         new_book = clear_order(order, size, sell)
+        # run clear_order function
         if new_book:
             sell = new_book[1]
+            # renew daftar sell dgn return new_book
             buy = buy[1:]
+            # renew daftar buy dgn delete buy[0]
         else:
             break
+        # kalo clear_order ga return apa apa, lgsg break/loop berhenti
     return buy, sell
 
 
@@ -135,11 +162,22 @@ def order_book(orders, book, stock_name):
         next turn!
     """
     for t, stock, side, order, size in orders:
+        # tuple berisi t (waktu), stock (nama saham), side (buy/sell), order (harga pesanan), size (ukuran pesanan)
         if stock_name == stock:
+            # cek apakah argumen stock_name sama dgn stock di pesanan/orders
             new = add_book(book.get(side, []), order, size)
+            # run add_book function
+            # side = buy/sell
+            # [] = default value jika side yg dikasih tdk ada di book
+            
             book[side] = sorted(new, reverse=side == 'buy', key=lambda x: x[0])
+            # jika side adalah 'buy', maka reverse diatur ke true, sehingga list akan diurutkan dari terbesar ke terkecil
+            # jika side bukan 'buy', reverse diatur ke False, sehingga list diurutkan dari terkecil ke terbesar
+            # key=lambda x: x[0] -> fungsi kunci yang digunakan untuk menentukan nilai yang akan digunakan untuk urutan
         bids, asks = clear_book(**book)
         yield t, bids, asks
+        # bids = daftar order beli, menunjukkan berapa harga yang ingin dibayar dan seberapa banyak yang ingin dibeli
+        # asks = daftar order jual, menunjukkan berapa harga yang ingin diterima dan seberapa banyak yang ingin dijual
 
 
 ################################################################################
@@ -149,18 +187,24 @@ def order_book(orders, book, stock_name):
 def generate_csv():
     """ Generate a CSV of order history. """
     with open('test.csv', 'wb') as f:
+        ## buka file test.scv dalam mode tulis binary (wb)
         writer = csv.writer(f)
+        # csv.writer adalah bagian dari modul csv yang memudahkan penulisan data dalam format CSV
         for t, stock, side, order, size in orders(market()):
             if t > MARKET_OPEN + SIM_LENGTH:
                 break
             writer.writerow([t, stock, side, order, size])
+            # menulis baris data ke dalam file CSV, data yang ditulis adalah waktu, saham, sisi order, harga order, dan ukuran order
 
 
 def read_csv():
     """ Read a CSV or order history into a list. """
     with open('test.csv', 'rt') as f:
+        # rt mode baca teks
         for time, stock, side, order, size in csv.reader(f):
+            # setiap baris dibaca sbg lima nilai: waktu (time), saham (stock), sisi order (side), harga order (order), dan ukuran order (size).
             yield dateutil.parser.parse(time), stock, side, float(order), int(size)
+            # mengubah format waktu menjadi objek datetime dengan dateutil.parser.parse(time), mengonversi harga order ke tipe float, dan ukuran order ke tipe int
 
 
 ################################################################################
